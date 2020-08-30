@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"compress/gzip"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -26,18 +25,18 @@ type FilterParameter struct {
 
 func filter(db *sql.DB, param *FilterParameter, form formatter.Formatter, writer *bufio.Writer) (err error) {
 	// find the right gzip files
-	rows, cerr := db.Query("CALL dataset_info.find_dataset(?, ?)", param.exchange, param.minute)
-	if cerr != nil {
-		err = fmt.Errorf("database querying failed: %s", cerr.Error())
+	rows, serr := db.Query("CALL dataset_info.find_dataset(?, ?)", param.exchange, param.minute)
+	if serr != nil {
+		err = fmt.Errorf("find_dataset: %v", serr)
 		return
 	}
 	defer func() {
-		cerr = rows.Close()
-		if cerr != nil {
+		serr = rows.Close()
+		if serr != nil {
 			if err != nil {
-				err = fmt.Errorf("closing rows failed: %s, original error was: %s", cerr.Error(), err.Error())
+				err = fmt.Errorf("closing rows: %v, originally: %v", serr, err)
 			} else {
-				err = fmt.Errorf("closing rows failed: %s", cerr.Error())
+				err = fmt.Errorf("closing rows: %v", serr)
 			}
 		}
 	}()
@@ -45,9 +44,9 @@ func filter(db *sql.DB, param *FilterParameter, form formatter.Formatter, writer
 	var key string
 	stop := false
 	for rows.Next() && !stop {
-		cerr := rows.Scan(&key)
-		if cerr != nil {
-			err = fmt.Errorf("scan failed: %s", cerr.Error())
+		serr := rows.Scan(&key)
+		if serr != nil {
+			err = fmt.Errorf("scan: %v", serr)
 			return
 		}
 		fmt.Println("reading: ", key)
@@ -62,40 +61,41 @@ func filter(db *sql.DB, param *FilterParameter, form formatter.Formatter, writer
 
 // filterDataset reads gzip from s3 with key and filters out channels not in filterChannels
 func filterDataset(key string, param *FilterParameter, form formatter.Formatter, writer *bufio.Writer) (stop bool, err error) {
+
 	stop = true
-	reader, cerr := sc.GetS3Object(key)
-	if cerr != nil {
-		err = fmt.Errorf("failed to fetch s3 object: %s", cerr.Error())
+	reader, serr := sc.S3GetAll(key)
+	if serr != nil {
+		err = serr
 		return
 	}
 	defer func() {
 		// close reader
-		cerr := reader.Close()
-		if cerr != nil {
+		serr := reader.Close()
+		if serr != nil {
 			if err != nil {
-				err = fmt.Errorf("failed to close reader: %s, original error was %s", cerr.Error(), err.Error())
+				err = fmt.Errorf("reader: %v, originally %v", serr, err)
 			} else {
-				err = fmt.Errorf("failed to close reader: %s", cerr.Error())
+				err = fmt.Errorf("reader: %v", serr)
 			}
 		}
 	}()
-	// wrap s3 object reader into gzip reader to read as gzip
-	greader, cerr := gzip.NewReader(reader)
-	if cerr != nil {
-		err = errors.New("failed to open gzip stream: " + cerr.Error())
+	// Fetched object is in Gzip format
+	greader, serr := gzip.NewReader(reader)
+	if serr != nil {
+		err = fmt.Errorf("failed to open gzip stream: %v", serr)
 		return
 	}
-	// this ensures both reader will be closed
+	// This ensures both reader will be closed
 	defer func() {
-		// close gzip reader
-		// this won't close underlying reader
-		cerr := greader.Close()
-		if cerr != nil {
+		// Close gzip reader
+		// This won't close the underlying reader
+		serr := greader.Close()
+		if serr != nil {
 			if err != nil {
-				err = fmt.Errorf("failed to close greader: %s, original error was %s", cerr.Error(), err.Error())
+				err = fmt.Errorf("greader: %v, originally %v", serr, err)
 				return
 			}
-			err = fmt.Errorf("failed to close greader: %s", cerr.Error())
+			err = fmt.Errorf("greader: %v", serr)
 			return
 		}
 	}()
@@ -109,13 +109,13 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 	stop = true
 	for {
 		// read type
-		typeBytes, cerr := reader.ReadBytes('\t')
-		if cerr != nil {
-			if cerr == io.EOF {
+		typeBytes, serr := reader.ReadBytes('\t')
+		if serr != nil {
+			if serr == io.EOF {
 				break
 			} else {
 				// some error
-				err = fmt.Errorf("error occurred on new line: %s", cerr.Error())
+				err = fmt.Errorf("error occurred on new line: %v", serr)
 				return
 			}
 		}
@@ -124,9 +124,9 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 		// ignore status line
 		if typeStr == "state\t" {
 			// skip line
-			_, cerr := reader.ReadBytes('\n')
-			if cerr != nil {
-				err = fmt.Errorf("error on skipping a state line: %s", cerr.Error())
+			_, serr := reader.ReadBytes('\n')
+			if serr != nil {
+				err = fmt.Errorf("error on skipping a state line: %v", serr)
 				return
 			}
 			continue
@@ -134,16 +134,16 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 		var timestampBytes []byte
 		if typeStr == "end\t" {
 			// end line does not have message
-			timestampBytes, cerr = reader.ReadBytes('\n')
-			if cerr != nil {
-				err = fmt.Errorf("error occurred on reading timestamp for end: %s", cerr.Error())
+			timestampBytes, serr = reader.ReadBytes('\n')
+			if serr != nil {
+				err = fmt.Errorf("error occurred on reading timestamp for end: %v", serr)
 				return
 			}
 		} else {
 			// read timestamp
-			timestampBytes, cerr = reader.ReadBytes('\t')
-			if cerr != nil {
-				err = fmt.Errorf("error occurred on reading timestamp: %s", cerr.Error())
+			timestampBytes, serr = reader.ReadBytes('\t')
+			if serr != nil {
+				err = fmt.Errorf("error occurred on reading timestamp: %v", serr)
 				return
 			}
 		}
@@ -151,17 +151,17 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 		// remove the last byte from string because it is tab/lineterm
 		timestampTrimmed := timestampBytes[:len(timestampBytes)-1]
 		timestampStr := *(*string)(unsafe.Pointer(&timestampTrimmed))
-		timestamp, cerr := strconv.ParseInt(timestampStr, 10, 64)
-		if cerr != nil {
-			err = fmt.Errorf("could not convert timestamp string to int64: %s", cerr.Error())
+		timestamp, serr := strconv.ParseInt(timestampStr, 10, 64)
+		if serr != nil {
+			err = fmt.Errorf("could not convert timestamp string to int64: %v", serr)
 			return
 		}
 
 		if timestamp < param.start {
 			// not reaching the start yet, ignore this line
-			_, cerr := reader.ReadBytes('\n')
-			if cerr != nil {
-				err = fmt.Errorf("error occurred skipping a line: %s", cerr.Error())
+			_, serr := reader.ReadBytes('\n')
+			if serr != nil {
+				err = fmt.Errorf("error occurred skipping a line: %v", serr)
 				return
 			}
 			continue
@@ -173,9 +173,9 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 		// filtering part
 		if typeStr == "msg\t" || typeStr == "send\t" {
 			// get channel
-			channelBytes, cerr := reader.ReadBytes('\t')
-			if cerr != nil {
-				err = fmt.Errorf("error on reading channel: %s", cerr.Error())
+			channelBytes, serr := reader.ReadBytes('\t')
+			if serr != nil {
+				err = fmt.Errorf("error on reading channel: %v", serr)
 				return
 			}
 			// slicing of slice is really cheap operation
@@ -189,75 +189,75 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 			if !ok {
 				// not in filter, ignore this line
 				// ReadSlice reads until delimiter or until buffer be full
-				_, cerr := reader.ReadBytes('\n')
-				if cerr != nil {
-					err = fmt.Errorf("error on skipping a line: %s", cerr.Error())
+				_, serr := reader.ReadBytes('\n')
+				if serr != nil {
+					err = fmt.Errorf("error on skipping a line: %v", serr)
 					return
 				}
 				continue
 			}
 			// filter applied, send message to client
-			bytes, cerr := reader.ReadBytes('\n')
-			if cerr != nil {
-				err = fmt.Errorf("error on reading a line: %s", cerr.Error())
+			bytes, serr := reader.ReadBytes('\n')
+			if serr != nil {
+				err = fmt.Errorf("error on reading a line: %v", serr)
 				return
 			}
-			// filter is specified, apply it
+			// formatter is specified, apply it
 			if form != nil {
 				if typeStr == "send\t" {
 					continue // do not format send message
 				}
-				formatted, cerr := form.Format(channelTrimmed, bytes)
-				if cerr != nil {
-					err = fmt.Errorf("error on formatting: %s", cerr.Error())
+				formatted, serr := form.FormatMessage(channelTrimmed, bytes)
+				if serr != nil {
+					err = fmt.Errorf("error on formatting: %v", serr)
 					return
 				}
 				for _, f := range formatted {
-					_, cerr := writer.Write(typeBytes)
-					if cerr != nil {
-						err = fmt.Errorf("write failed: %s", cerr.Error())
+					_, serr := writer.Write(typeBytes)
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
 						return
 					}
-					_, cerr = writer.Write(timestampBytes)
-					if cerr != nil {
-						err = fmt.Errorf("write failed: %s", cerr.Error())
+					_, serr = writer.Write(timestampBytes)
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
 						return
 					}
-					_, cerr = writer.Write(channelBytes)
-					if cerr != nil {
-						err = fmt.Errorf("write failed: %s", cerr.Error())
+					_, serr = writer.Write(channelBytes)
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
 						return
 					}
-					_, cerr = writer.Write(f)
-					if cerr != nil {
-						err = fmt.Errorf("write failed: %s", cerr.Error())
+					_, serr = writer.Write(f)
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
 						return
 					}
-					_, cerr = writer.WriteRune('\n')
-					if cerr != nil {
-						err = fmt.Errorf("write failed: %s", cerr.Error())
+					_, serr = writer.WriteRune('\n')
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
 						return
 					}
 				}
 			} else {
-				_, cerr := writer.Write(typeBytes)
-				if cerr != nil {
-					err = fmt.Errorf("write failed: %s", cerr.Error())
+				_, serr := writer.Write(typeBytes)
+				if serr != nil {
+					err = fmt.Errorf("write failed: %v", serr)
 					return
 				}
-				_, cerr = writer.Write(timestampBytes)
-				if cerr != nil {
-					err = fmt.Errorf("write failed: %s", cerr.Error())
+				_, serr = writer.Write(timestampBytes)
+				if serr != nil {
+					err = fmt.Errorf("write failed: %v", serr)
 					return
 				}
-				_, cerr = writer.Write(channelBytes)
-				if cerr != nil {
-					err = fmt.Errorf("write failed: %s", cerr.Error())
+				_, serr = writer.Write(channelBytes)
+				if serr != nil {
+					err = fmt.Errorf("write failed: %v", serr)
 					return
 				}
-				_, cerr = writer.Write(bytes) // this includes line terminator
-				if cerr != nil {
-					err = fmt.Errorf("write failed: %s", cerr.Error())
+				_, serr = writer.Write(bytes) // this includes line terminator
+				if serr != nil {
+					err = fmt.Errorf("write failed: %v", serr)
 					return
 				}
 			}
@@ -266,26 +266,78 @@ func filterGZipReader(reader *bufio.Reader, param *FilterParameter, form formatt
 			// but we should not stop as we might have more datasets to filter
 			stop = false
 			return
+		} else if typeStr == "start\t" {
+			urlStr, serr := reader.ReadString('\n')
+			if serr != nil {
+				err = fmt.Errorf("error on reading a line: %v", serr)
+				return
+			}
+			urlStrTrimmed := string(urlStr[:len(urlStr)-1])
+			_, serr := writer.Write(typeBytes)
+			if serr != nil {
+				err = fmt.Errorf("write failed: %v", serr)
+				return
+			}
+			_, serr = writer.Write(timestampBytes)
+			if serr != nil {
+				err = fmt.Errorf("write failed: %v", serr)
+				return
+			}
+			_, serr = writer.WriteString(urlStr)
+			if serr != nil {
+				err = fmt.Errorf("write failed: %v", serr)
+				return
+			}
+			// formatter is specified, apply it
+			if form != nil {
+				formatted, serr := form.FormatStart(urlStrTrimmed)
+				if serr != nil {
+					err = fmt.Errorf("error on formatting: %v", serr)
+					return
+				}
+				for _, f := range formatted {
+					_, serr := writer.WriteString("msg\t")
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
+						return
+					}
+					_, serr = writer.Write(timestampBytes)
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
+						return
+					}
+					_, serr = writer.Write(f)
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
+						return
+					}
+					_, serr = writer.WriteRune('\n')
+					if serr != nil {
+						err = fmt.Errorf("write failed: %v", serr)
+						return
+					}
+				}
+			}
 		} else {
-			// filter has no effect on start and err
-			_, cerr := writer.Write(typeBytes)
-			if cerr != nil {
-				err = fmt.Errorf("write failed: %s", cerr.Error())
+			// filter has no effect and err
+			_, serr := writer.Write(typeBytes)
+			if serr != nil {
+				err = fmt.Errorf("write failed: %v", serr)
 				return
 			}
-			_, cerr = writer.Write(timestampBytes)
-			if cerr != nil {
-				err = fmt.Errorf("write failed: %s", cerr.Error())
+			_, serr = writer.Write(timestampBytes)
+			if serr != nil {
+				err = fmt.Errorf("write failed: %v", serr)
 				return
 			}
-			bytes, cerr := reader.ReadBytes('\n')
-			if cerr != nil {
-				err = fmt.Errorf("error on reading a line: %s", cerr.Error())
+			bytes, serr := reader.ReadBytes('\n')
+			if serr != nil {
+				err = fmt.Errorf("error on reading a line: %v", serr)
 				return
 			}
-			_, cerr = writer.Write(bytes)
-			if cerr != nil {
-				err = fmt.Errorf("write failed: %s", cerr.Error())
+			_, serr = writer.Write(bytes)
+			if serr != nil {
+				err = fmt.Errorf("write failed: %v", serr)
 				return
 			}
 		}

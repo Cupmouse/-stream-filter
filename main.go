@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -14,43 +15,50 @@ import (
 	"github.com/exchangedataset/streamcommons/formatter"
 )
 
+// Test is `true` if and only if this instance is running on the context of test.
+var Test = os.Getenv("TEST") == "1"
+
 // handleRequest handles request from amazon api
 func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGatewayProxyResponse, err error) {
-	db, cerr := sc.ConnectDatabase()
-	if cerr != nil {
-		err = fmt.Errorf("failed to connect to database: %s", cerr.Error())
+	if !Test {
+		sc.AWSEnableProduction()
+	}
+
+	db, serr := sc.ConnectDatabase()
+	if serr != nil {
+		err = serr
 		return
 	}
 	defer func() {
-		cerr := db.Close()
-		if cerr != nil {
+		serr := db.Close()
+		if serr != nil {
 			if err != nil {
-				err = fmt.Errorf("failed to close database connection: %s, original error was: %s", cerr.Error(), err.Error())
+				err = fmt.Errorf("database close: %v, originally: %v", serr, err)
 			} else {
-				err = fmt.Errorf("failed to close database connection: %s", cerr.Error())
+				err = fmt.Errorf("database close: %v", serr)
 			}
 		}
 	}()
 
 	// initialize apikey
-	apikey, cerr := sc.NewAPIKey(event)
-	if cerr != nil {
-		return sc.MakeResponse(401, fmt.Sprintf("API-key authorization failed: %s", cerr.Error())), nil
+	apikey, serr := sc.NewAPIKey(event)
+	if serr != nil {
+		return sc.MakeResponse(401, fmt.Sprintf("API-key authorization: %v", serr)), nil
 	}
 	fmt.Println("NewAPIKey end")
 	if !apikey.Demo {
 		// if this is not a demo apikey, then check for availability
-		cerr = apikey.CheckAvalability(db)
-		if cerr != nil {
-			return sc.MakeResponse(401, fmt.Sprintf("API key is invalid: %s", cerr.Error())), nil
+		serr = apikey.CheckAvalability(db)
+		if serr != nil {
+			return sc.MakeResponse(401, fmt.Sprintf("API key is invalid: %v", serr)), nil
 		}
 		fmt.Println("API Checked")
 	}
 
 	// get paramaters
-	param, cerr := makeParameter(&event)
-	if cerr != nil {
-		return sc.MakeResponse(400, cerr.Error()), nil
+	param, serr := makeParameter(&event)
+	if serr != nil {
+		return sc.MakeResponse(400, serr.Error()), nil
 	}
 	if apikey.Demo {
 		// if apikey is demo key, then limit the start and end date
@@ -64,9 +72,9 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 	fmt.Println("Parameter made")
 	var form formatter.Formatter
 	if param.format != "raw" {
-		form, cerr = formatter.GetFormatter(param.exchange, event.MultiValueQueryStringParameters["channels"], param.format)
-		if cerr != nil {
-			return sc.MakeResponse(400, cerr.Error()), nil
+		form, serr = formatter.GetFormatter(param.exchange, event.MultiValueQueryStringParameters["channels"], param.format)
+		if serr != nil {
+			return sc.MakeResponse(400, serr.Error()), nil
 		}
 	}
 	fmt.Println("Formatter prepared")
@@ -77,9 +85,9 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 	// this does not need to be closed
 	writer := bufio.NewWriter(buffer)
 
-	cerr = filter(db, param, form, writer)
-	if cerr != nil {
-		err = fmt.Errorf("Getting result failed: %s", cerr.Error())
+	serr = filter(db, param, form, writer)
+	if serr != nil {
+		err = fmt.Errorf("Getting result failed: %v", serr)
 		return
 	}
 	fmt.Println("Filtered")
@@ -87,9 +95,9 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 	ferr := writer.Flush()
 	if ferr != nil {
 		if err != nil {
-			err = fmt.Errorf("failed to flush writer, original error was: %s", err.Error())
+			err = fmt.Errorf("flush writer failed, originally: %v", err)
 		} else {
-			err = errors.New("failed to flush writer")
+			err = errors.New("flush writer failed")
 		}
 		return
 	}
@@ -102,9 +110,9 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		incremented = sc.CalcQuotaUsed(writtenSize)
 	} else {
 		// if apikey is not test key, update transfer amount
-		incremented, cerr = apikey.IncrementUsed(db, writtenSize)
-		if cerr != nil {
-			err = fmt.Errorf("Transfer update failed: %s", cerr.Error())
+		incremented, serr = apikey.IncrementUsed(db, writtenSize)
+		if serr != nil {
+			err = fmt.Errorf("transfer update failed: %v", serr)
 			return
 		}
 		fmt.Println("Increment done")
