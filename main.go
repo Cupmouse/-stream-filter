@@ -15,12 +15,12 @@ import (
 	"github.com/exchangedataset/streamcommons/formatter"
 )
 
-// Test is `true` if and only if this instance is running on the context of test.
-var Test = os.Getenv("TEST") == "1"
+// Production is `true` if and only if this instance is running on the context of production environment.
+var Production = os.Getenv("PRODUCTION") == "1"
 
 // handleRequest handles request from amazon api
 func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGatewayProxyResponse, err error) {
-	if !Test {
+	if Production {
 		sc.AWSEnableProduction()
 	}
 
@@ -39,8 +39,7 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 			}
 		}
 	}()
-
-	// initialize apikey
+	// Initialize apikey
 	apikey, serr := sc.NewAPIKey(event)
 	if serr != nil {
 		return sc.MakeResponse(401, fmt.Sprintf("API-key authorization: %v", serr)), nil
@@ -54,22 +53,20 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		}
 		fmt.Println("API Checked")
 	}
-
-	// get paramaters
+	// Make parameter struct from AWS Gateway Proxy Event
 	param, serr := makeParameter(&event)
 	if serr != nil {
 		return sc.MakeResponse(400, serr.Error()), nil
 	}
-	if apikey.Demo {
-		// if apikey is demo key, then limit the start and end date
+	if apikey.Demo && Production {
+		// If the apikey is an demo key, then limit the start and end date
 		if param.minute < int64(sc.DemoAPIKeyAllowedStart/time.Minute) ||
 			param.minute >= int64(sc.DemoAPIKeyAllowedEnd/time.Minute) {
-			// out of range
+			// Out of range
 			return sc.MakeResponse(400, "parameter minute out of range: Demo API-key can only request certain date"), nil
 		}
 	}
-
-	fmt.Println("Parameter made")
+	fmt.Println("Parameter loaded")
 	var form formatter.Formatter
 	if param.format != "raw" {
 		form, serr = formatter.GetFormatter(param.exchange, event.MultiValueQueryStringParameters["channels"], param.format)
@@ -78,54 +75,46 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		}
 	}
 	fmt.Println("Formatter prepared")
-
-	// generate result string for specified paramters
+	// Buffer to store final result
 	buf := make([]byte, 0, 50*1024*1024)
 	buffer := bytes.NewBuffer(buf)
-	// this does not need to be closed
 	writer := bufio.NewWriter(buffer)
 
-	serr = filter(db, param, form, writer)
+	found, serr := filter(param, form, writer)
 	if serr != nil {
-		err = fmt.Errorf("Getting result failed: %v", serr)
+		err = serr
 		return
 	}
 	fmt.Println("Filtered")
-
-	ferr := writer.Flush()
-	if ferr != nil {
+	serr = writer.Flush()
+	if serr != nil {
 		if err != nil {
-			err = fmt.Errorf("flush writer failed, originally: %v", err)
+			err = fmt.Errorf("flush writer: %v, originally: %v", serr, err)
 		} else {
-			err = errors.New("flush writer failed")
+			err = fmt.Errorf("flush writer: %v", serr)
 		}
 		return
 	}
-
 	written := buffer.Bytes()
 	writtenSize := int64(len(written))
-
 	var incremented int64
 	if apikey.Demo {
 		incremented = sc.CalcQuotaUsed(writtenSize)
 	} else {
-		// if apikey is not test key, update transfer amount
+		// If apikey is not test key, update transfer amount
 		incremented, serr = apikey.IncrementUsed(db, writtenSize)
 		if serr != nil {
-			err = fmt.Errorf("transfer update failed: %v", serr)
+			err = fmt.Errorf("transfer update: %v", serr)
 			return
 		}
 		fmt.Println("Increment done")
 	}
-
 	var statusCode int
-	// return value
-	if writtenSize != 0 {
+	if found {
 		statusCode = 200
 	} else {
 		statusCode = 404
 	}
-
 	return sc.MakeLargeResponse(statusCode, written, incremented)
 }
 
