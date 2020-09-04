@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -22,41 +23,99 @@ func makeLambdaEvent(exchange string, channels []string, minute string, format s
 	}
 }
 
-func TestBinanceTrade(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("binance", []string{"btcusdt@trade"}, "26647344", "json"))
+func testCommon(t *testing.T, res *events.APIGatewayProxyResponse, err error) {
 	if err != nil {
 		t.Fatal(err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatal(res.Body)
 	}
 	if len(res.Body) == 0 {
 		t.Fatal("empty body")
 	}
+	if res.StatusCode != 200 {
+		t.Fatal(res.Body)
+	}
+	fmt.Print(res.Body)
+}
+
+func TestBitmexTrade(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"trade"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitmexOrderBookL2(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"orderBookL2"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitmexInstrument(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"insurance"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitmexFunding(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"funding"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitmexSettlement(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"settlement"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitmexLiquidation(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"liquidation"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitflyerBoard(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"board_BTCJPY"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitflyerExecutions(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"executions_BTCJPY"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitflyerTicker(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"ticker_BTCJPY"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+func TestBitfinexBook(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitfinex", []string{"book_tBTCUSD"}, "26647381", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBitfinexTrade(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("bitfinex", []string{"trades_tBTCUSD"}, "26647381", "json"))
+	testCommon(t, res, err)
+}
+
+func TestBinanceTrade(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("binance", []string{"btcusdt@trade"}, "26647344", "json"))
+	testCommon(t, res, err)
 }
 
 func TestBinanceDepth(t *testing.T) {
 	res, err := handleRequest(makeLambdaEvent("binance", []string{"btcusdt@depth@100ms"}, "26647344", "json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatal(res.Body)
-	}
-	if len(res.Body) == 0 {
-		t.Fatal("empty body")
-	}
+	testCommon(t, res, err)
 }
 
 func TestBinanceTicker(t *testing.T) {
 	res, err := handleRequest(makeLambdaEvent("binance", []string{"btcusdt@ticker"}, "26647344", "json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.StatusCode != 200 {
-		t.Fatal(res.Body)
-	}
-	if len(res.Body) == 0 {
-		t.Fatal("empty body")
-	}
+	testCommon(t, res, err)
+}
+
+func TestLiquidPriceLaddersBuy(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("liquid", []string{"price_ladders_cash_btcjpy_buy"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestLiquidPriceLaddersSell(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("liquid", []string{"price_ladders_cash_btcjpy_sell"}, "26647380", "json"))
+	testCommon(t, res, err)
+}
+
+func TestLiquidExecution(t *testing.T) {
+	res, err := handleRequest(makeLambdaEvent("liquid", []string{"executions_cash_btcjpy"}, "26647380", "json"))
+	testCommon(t, res, err)
 }

@@ -73,6 +73,11 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		if serr != nil {
 			return sc.MakeResponse(400, serr.Error()), nil
 		}
+		for channel := range param.filterChannels {
+			if !form.IsSupported(channel) {
+				return sc.MakeResponse(400, fmt.Sprintf("formatting for channel '%v' is not supported", channel)), nil
+			}
+		}
 	}
 	fmt.Println("Formatter prepared")
 	// Buffer to store final result

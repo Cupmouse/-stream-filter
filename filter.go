@@ -257,6 +257,9 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter, form formatter.For
 					return fmt.Errorf("formatting: %v", serr)
 				}
 				for _, f := range formatted {
+					if _, ok := param.filterChannels[f.Channel]; !ok {
+						continue
+					}
 					_, serr := writer.WriteString("msg\t")
 					if serr != nil {
 						return fmt.Errorf("msg: %v", serr)
