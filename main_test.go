@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -33,7 +32,7 @@ func testCommon(t *testing.T, res *events.APIGatewayProxyResponse, err error) {
 	if res.StatusCode != 200 {
 		t.Fatal(res.Body)
 	}
-	fmt.Print(res.Body)
+	// fmt.Print(res.Body)
 }
 
 func TestBitmexTrade(t *testing.T) {
@@ -67,17 +66,17 @@ func TestBitmexLiquidation(t *testing.T) {
 }
 
 func TestBitflyerBoard(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"board_BTCJPY"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"lightning_board_BTC_JPY"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitflyerExecutions(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"executions_BTCJPY"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"lightning_executions_BTC_JPY"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitflyerTicker(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"ticker_BTCJPY"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitflyer", []string{"lightning_ticker_BTC_JPY"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 func TestBitfinexBook(t *testing.T) {

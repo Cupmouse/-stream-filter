@@ -73,7 +73,7 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		if serr != nil {
 			return sc.MakeResponse(400, serr.Error()), nil
 		}
-		for channel := range param.filterChannels {
+		for channel := range param.channelFilter {
 			if !form.IsSupported(channel) {
 				return sc.MakeResponse(400, fmt.Sprintf("formatting for channel '%v' is not supported", channel)), nil
 			}
@@ -137,9 +137,16 @@ func makeParameter(event *events.APIGatewayProxyRequest) (*FilterParameter, erro
 		return param, errors.New("query parameter 'channels' must be specified")
 	}
 	// make set of channels to be included for easy filtering with less computation
-	param.filterChannels = make(map[string]bool)
+	param.channelFilter = make(map[string]bool)
 	for _, channel := range channels {
-		param.filterChannels[channel] = true
+		param.channelFilter[channel] = true
+	}
+	postFilter, ok := event.MultiValueQueryStringParameters["postFilter"]
+	if ok {
+		param.postFilter = make(map[string]bool)
+		for _, channel := range postFilter {
+			param.postFilter[channel] = true
+		}
 	}
 	minuteStr, ok := event.PathParameters["minute"]
 	if !ok {
