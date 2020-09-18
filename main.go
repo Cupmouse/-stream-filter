@@ -1,18 +1,13 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	sc "github.com/exchangedataset/streamcommons"
-	"github.com/exchangedataset/streamcommons/formatter"
 )
 
 // Production is `true` if and only if this instance is running on the context of production environment.
@@ -22,6 +17,12 @@ var Production = os.Getenv("PRODUCTION") == "1"
 func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGatewayProxyResponse, err error) {
 	if Production {
 		sc.AWSEnableProduction()
+	}
+
+	// Make parameter struct from AWS Gateway Proxy Event
+	param, serr := makeParameter(&event)
+	if serr != nil {
+		return sc.MakeResponse(400, serr.Error()), nil
 	}
 
 	db, serr := sc.ConnectDatabase()
@@ -53,11 +54,6 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		}
 		fmt.Println("API Checked")
 	}
-	// Make parameter struct from AWS Gateway Proxy Event
-	param, serr := makeParameter(&event)
-	if serr != nil {
-		return sc.MakeResponse(400, serr.Error()), nil
-	}
 	if apikey.Demo && Production {
 		// If the apikey is an demo key, then limit the start and end date
 		if param.minute < int64(sc.DemoAPIKeyAllowedStart/time.Minute) ||
@@ -67,42 +63,21 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		}
 	}
 	fmt.Println("Parameter loaded")
-	var form formatter.Formatter
-	if param.format != "raw" {
-		form, serr = formatter.GetFormatter(param.exchange, event.MultiValueQueryStringParameters["channels"], param.format)
-		if serr != nil {
-			return sc.MakeResponse(400, serr.Error()), nil
-		}
-		for channel := range param.channelFilter {
-			if !form.IsSupported(channel) {
-				return sc.MakeResponse(400, fmt.Sprintf("formatting for channel '%v' is not supported", channel)), nil
-			}
-		}
-	}
-	fmt.Println("Formatter prepared")
-	// Buffer to store final result
-	buf := make([]byte, 0, 50*1024*1024)
-	buffer := bytes.NewBuffer(buf)
-	writer := bufio.NewWriter(buffer)
-
-	found, serr := filter(param, form, writer)
+	// Initialize result buffer
+	param.initResultBuffer()
+	found, serr := filter(param)
 	if serr != nil {
 		err = serr
 		return
 	}
 	fmt.Println("Filtered")
-	serr = writer.Flush()
+	written, serr := param.finishResultBuffer()
 	if serr != nil {
-		if err != nil {
-			err = fmt.Errorf("flush writer: %v, originally: %v", serr, err)
-		} else {
-			err = fmt.Errorf("flush writer: %v", serr)
-		}
+		err = serr
 		return
 	}
-	written := buffer.Bytes()
-	writtenSize := int64(len(written))
-	var incremented int64
+	writtenSize := len(written)
+	var incremented int
 	if apikey.Demo {
 		incremented = sc.CalcQuotaUsed(writtenSize)
 	} else {
@@ -121,66 +96,6 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		statusCode = 404
 	}
 	return sc.MakeLargeResponse(statusCode, written, incremented)
-}
-
-func makeParameter(event *events.APIGatewayProxyRequest) (*FilterParameter, error) {
-	param := new(FilterParameter)
-
-	var err error
-	var ok bool
-	param.exchange, ok = event.PathParameters["exchange"]
-	if !ok {
-		return param, errors.New("path parameter 'exchange' must be specified")
-	}
-	channels, ok := event.MultiValueQueryStringParameters["channels"]
-	if !ok {
-		return param, errors.New("query parameter 'channels' must be specified")
-	}
-	// make set of channels to be included for easy filtering with less computation
-	param.channelFilter = make(map[string]bool)
-	for _, channel := range channels {
-		param.channelFilter[channel] = true
-	}
-	postFilter, ok := event.MultiValueQueryStringParameters["postFilter"]
-	if ok {
-		param.postFilter = make(map[string]bool)
-		for _, channel := range postFilter {
-			param.postFilter[channel] = true
-		}
-	}
-	minuteStr, ok := event.PathParameters["minute"]
-	if !ok {
-		return param, errors.New("path parameter 'minute' must be specified")
-	}
-	param.minute, err = strconv.ParseInt(minuteStr, 10, 64)
-	if err != nil {
-		return param, errors.New("path parameter 'minute' must be of integer")
-	}
-	startStr, ok := event.QueryStringParameters["start"]
-	if ok {
-		param.start, err = strconv.ParseInt(startStr, 10, 64)
-		if err != nil {
-			return param, errors.New("query parameter 'start' must be integer")
-		}
-	} else {
-		param.start = 0
-	}
-	endStr, ok := event.QueryStringParameters["end"]
-	if ok {
-		param.end, err = strconv.ParseInt(endStr, 10, 64)
-		if err != nil {
-			return param, errors.New("query parameter 'end' must be integer")
-		}
-	} else {
-		param.end = 9223372036854775807
-	}
-	format, ok := event.QueryStringParameters["format"]
-	if ok {
-		param.format = format
-	} else {
-		param.format = "raw"
-	}
-	return param, nil
 }
 
 func main() {

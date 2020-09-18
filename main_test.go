@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -32,36 +33,36 @@ func testCommon(t *testing.T, res *events.APIGatewayProxyResponse, err error) {
 	if res.StatusCode != 200 {
 		t.Fatal(res.Body)
 	}
-	// fmt.Print(res.Body)
+	fmt.Print(res.Body)
 }
 
 func TestBitmexTrade(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"trade"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"trade_XBTUSD"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitmexOrderBookL2(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"orderBookL2"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"orderBookL2_XBTUSD"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitmexInstrument(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"insurance"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"instrument_XBTUSD"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitmexFunding(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"funding"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"funding_USD"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitmexSettlement(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"settlement"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"settlement_XBTUSD"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 
 func TestBitmexLiquidation(t *testing.T) {
-	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"liquidation"}, "26647380", "json"))
+	res, err := handleRequest(makeLambdaEvent("bitmex", []string{"liquidation_XBTUSD"}, "26647380", "json"))
 	testCommon(t, res, err)
 }
 

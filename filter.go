@@ -10,21 +10,9 @@ import (
 	"strconv"
 
 	sc "github.com/exchangedataset/streamcommons"
-	"github.com/exchangedataset/streamcommons/formatter"
 )
 
-// FilterParameter is the parameter needed to filter lines
-type FilterParameter struct {
-	exchange      string
-	channelFilter map[string]bool
-	postFilter    map[string]bool
-	minute        int64
-	start         int64
-	end           int64
-	format        string
-}
-
-func filter(param *FilterParameter, form formatter.Formatter, writer *bufio.Writer) (found bool, err error) {
+func filter(param *FilterParameter) (found bool, err error) {
 	ctx := context.Background()
 	// Fetch object
 	body, serr := sc.GetS3Object(ctx, fmt.Sprintf("%s_%d.gz", param.exchange, param.minute))
@@ -46,7 +34,7 @@ func filter(param *FilterParameter, form formatter.Formatter, writer *bufio.Writ
 			}
 		}
 	}()
-	serr = filterReader(body, param, form, writer)
+	serr = filterReader(body, param)
 	if serr != nil {
 		err = fmt.Errorf("filter: %v", serr)
 		return
@@ -54,7 +42,7 @@ func filter(param *FilterParameter, form formatter.Formatter, writer *bufio.Writ
 	return
 }
 
-func filterReader(reader io.ReadCloser, param *FilterParameter, form formatter.Formatter, writer *bufio.Writer) (err error) {
+func filterReader(reader io.ReadCloser, param *FilterParameter) (err error) {
 	defer func() {
 		// close reader
 		serr := reader.Close()
@@ -89,28 +77,11 @@ func filterReader(reader io.ReadCloser, param *FilterParameter, form formatter.F
 	// wrap gzip stream into string reader, this does not need closing
 	breader := bufio.NewReader(greader)
 
-	return filterGZip(breader, param, form, writer)
-}
-
-func writeTabSeparated(writer *bufio.Writer, bytes [][]byte) error {
-	for i, b := range bytes {
-		if _, serr := writer.Write(b); serr != nil {
-			return fmt.Errorf("%d: %v", i, serr)
-		}
-		if i != len(bytes) {
-			if _, serr := writer.WriteRune('\t'); serr != nil {
-				return fmt.Errorf("tab: %v", serr)
-			}
-		}
-	}
-	if _, serr := writer.WriteRune('\n'); serr != nil {
-		return fmt.Errorf("line terminator: %v", serr)
-	}
-	return nil
+	return filterGZip(breader, param)
 }
 
 // filterGZip reads gzip from s3 with key and filters out channels not in filterChannels
-func filterGZip(reader *bufio.Reader, param *FilterParameter, form formatter.Formatter, writer *bufio.Writer) error {
+func filterGZip(reader *bufio.Reader, param *FilterParameter) error {
 	for {
 		// Read all
 		all, serr := reader.ReadBytes('\n')
@@ -140,38 +111,32 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter, form formatter.For
 		switch typ {
 		case "msg":
 			channel := string(splitted[2])
-			// Should this channel be filtered in?
-			if _, ok := param.channelFilter[channel]; !ok {
-				// Not in filter, ignore this line
+			if _, ok := param.preFilter[channel]; !ok {
+				// Filter out
 				continue
 			}
 			msg := splitted[3]
 			// Formatter is specified, apply it
-			if form != nil {
-				formatted, serr := form.FormatMessage(channel, msg)
+			if param.form != nil {
+				formatted, serr := param.form.FormatMessage(channel, msg)
 				if serr != nil {
 					return fmt.Errorf("formatting: %v", serr)
 				}
 				for _, f := range formatted {
-					if param.postFilter != nil {
-						// Apply post filter
-						if _, ok := param.postFilter[f.Channel]; !ok {
-							continue
-						}
-					}
-					writeTabSeparated(writer, [][]byte{typBytes, timestampBytes, []byte(f.Channel), f.Message})
+					param.writeTabSeparated(typBytes, timestampBytes, []byte(f.Channel), f.Message)
 				}
 			} else {
-				if _, serr = writer.Write(all); serr != nil {
+				if _, serr = param.writer.Write(all); serr != nil {
 					return fmt.Errorf("line: %v", serr)
 				}
 			}
 		case "send":
 			channel := string(splitted[2])
-			if _, ok := param.channelFilter[channel]; !ok {
+			if _, ok := param.preFilter[channel]; !ok {
+				// Filter out
 				continue
 			}
-			if _, serr = writer.Write(all); serr != nil {
+			if _, serr = param.writer.Write(all); serr != nil {
 				return fmt.Errorf("line: %v", serr)
 			}
 		case "state":
@@ -179,27 +144,23 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter, form formatter.For
 		case "start":
 			url := string(splitted[2])
 			// Formatter is specified, apply it
-			if form != nil {
-				formatted, serr := form.FormatStart(url)
+			if param.form != nil {
+				formatted, serr := param.form.FormatStart(url)
 				if serr != nil {
 					return fmt.Errorf("formatting: %v", serr)
 				}
 				for _, f := range formatted {
-					if _, ok := param.channelFilter[f.Channel]; !ok {
-						continue
-					}
-					writeTabSeparated(writer, [][]byte{[]byte("msg"), timestampBytes, []byte(f.Channel), f.Message})
+					param.writeTabSeparated([]byte("msg"), timestampBytes, []byte(f.Channel), f.Message)
 				}
-			} else {
-				if _, serr = writer.Write(all); serr != nil {
-					return fmt.Errorf("line: %v", serr)
-				}
+			}
+			if _, serr = param.writer.Write(all); serr != nil {
+				return fmt.Errorf("line: %v", serr)
 			}
 		case "end":
 			continue
 		case "err":
 			// Filter has no effect and err
-			if _, serr = writer.Write(all); serr != nil {
+			if _, serr = param.writer.Write(all); serr != nil {
 				return fmt.Errorf("line: %v", serr)
 			}
 		default:
