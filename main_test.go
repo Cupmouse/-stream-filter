@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -118,4 +119,12 @@ func TestLiquidPriceLaddersSell(t *testing.T) {
 func TestLiquidExecution(t *testing.T) {
 	res, err := handleRequest(makeLambdaEvent("liquid", []string{"executions_cash_btcjpy"}, "26647380", "json"))
 	testCommon(t, res, err)
+}
+
+func init() {
+	os.Setenv("DATABASE_URL", "localhost")
+	os.Setenv("DATABASE_USER", "root")
+	os.Setenv("DATABASE_PORT", "3306")
+	os.Setenv("DATABASE_PASSWORD", "")
+	os.Setenv("DATABASE_DISABLE_CERT", "1")
 }
