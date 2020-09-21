@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -76,13 +77,14 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 		err = serr
 		return
 	}
-	writtenSize := len(written)
-	var incremented int
-	if apikey.Demo {
-		incremented = sc.CalcQuotaUsed(writtenSize)
-	} else {
+	if param.orderbookWritten+param.othersWritten != len(written) {
+		// Counted wrongly
+		return nil, errors.New("others + orderbook != written")
+	}
+	cost := sc.CalcCost(param.othersWritten, param.orderbookWritten)
+	if !apikey.Demo {
 		// If apikey is not test key, update transfer amount
-		incremented, serr = apikey.IncrementUsed(db, writtenSize)
+		serr = apikey.IncrementUsed(db, cost)
 		if serr != nil {
 			err = fmt.Errorf("transfer update: %v", serr)
 			return
@@ -95,7 +97,7 @@ func handleRequest(event events.APIGatewayProxyRequest) (response *events.APIGat
 	} else {
 		statusCode = 404
 	}
-	return sc.MakeLargeResponse(statusCode, written, incremented)
+	return sc.MakeLargeResponse(statusCode, written, cost)
 }
 
 func main() {

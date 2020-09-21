@@ -16,15 +16,17 @@ import (
 type FilterParameter struct {
 	exchange string
 	// This is used for formatting target
-	channels  []string
-	minute    int64
-	start     int64
-	end       int64
-	format    string
-	preFilter map[string]bool
-	buffer    *bytes.Buffer
-	writer    *bufio.Writer
-	form      formatter.Formatter
+	channels         []string
+	minute           int64
+	start            int64
+	end              int64
+	format           string
+	preFilter        map[string]bool
+	buffer           *bytes.Buffer
+	writer           *bufio.Writer
+	form             formatter.Formatter
+	orderbookWritten int
+	othersWritten    int
 }
 
 func (c *FilterParameter) finishResultBuffer() ([]byte, error) {
@@ -53,21 +55,27 @@ func (c *FilterParameter) initFormatter() (err error) {
 	return
 }
 
-func (c *FilterParameter) writeTabSeparated(bytes ...[]byte) error {
+func (c *FilterParameter) writeTabSeparated(bytes ...[]byte) (written int, err error) {
 	for i, b := range bytes {
-		if _, serr := c.writer.Write(b); serr != nil {
-			return fmt.Errorf("%d: %v", i, serr)
+		w, serr := c.writer.Write(b)
+		if serr != nil {
+			return 0, fmt.Errorf("%d: %v", i, serr)
 		}
+		written += w
 		if i != len(bytes)-1 {
-			if _, serr := c.writer.WriteRune('\t'); serr != nil {
-				return fmt.Errorf("tab: %v", serr)
+			w, serr := c.writer.WriteRune('\t')
+			if serr != nil {
+				return 0, fmt.Errorf("tab: %v", serr)
 			}
+			written += w
 		}
 	}
-	if _, serr := c.writer.WriteRune('\n'); serr != nil {
-		return fmt.Errorf("line terminator: %v", serr)
+	w, serr := c.writer.WriteRune('\n')
+	if serr != nil {
+		return 0, fmt.Errorf("line terminator: %v", serr)
 	}
-	return nil
+	written += w
+	return written, nil
 }
 
 func toPreFilter(exchange string, channels []string) map[string]bool {

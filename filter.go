@@ -108,6 +108,9 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter) error {
 			// If timestamp of this line is out of range specified in parameter then end
 			return nil
 		}
+		// This variable will be updated in below switch section
+		cg := sc.ChannelGroupOthers
+		written := 0
 		switch typ {
 		case "msg":
 			channel := string(splitted[2])
@@ -123,12 +126,20 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter) error {
 					return fmt.Errorf("formatting: %v", serr)
 				}
 				for _, f := range formatted {
-					param.writeTabSeparated(typBytes, timestampBytes, []byte(f.Channel), f.Message)
+					w, serr := param.writeTabSeparated(typBytes, timestampBytes, []byte(f.Channel), f.Message)
+					if serr != nil {
+						return fmt.Errorf("")
+					}
+					written += w
 				}
 			} else {
 				if _, serr = param.writer.Write(all); serr != nil {
 					return fmt.Errorf("line: %v", serr)
 				}
+				written += len(all)
+			}
+			if cg, serr = sc.GetChannelGroup(param.exchange, channel); serr != nil {
+				return fmt.Errorf("msg: %v", serr)
 			}
 		case "send":
 			channel := string(splitted[2])
@@ -138,6 +149,11 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter) error {
 			}
 			if _, serr = param.writer.Write(all); serr != nil {
 				return fmt.Errorf("line: %v", serr)
+			}
+			written += len(all)
+			// Count differently by its channel group
+			if cg, serr = sc.GetChannelGroup(param.exchange, channel); serr != nil {
+				return fmt.Errorf("send: %v", serr)
 			}
 		case "state":
 			// Ignore state line
@@ -150,21 +166,36 @@ func filterGZip(reader *bufio.Reader, param *FilterParameter) error {
 					return fmt.Errorf("formatting: %v", serr)
 				}
 				for _, f := range formatted {
-					param.writeTabSeparated([]byte("msg"), timestampBytes, []byte(f.Channel), f.Message)
+					w, serr := param.writeTabSeparated([]byte("msg"), timestampBytes, []byte(f.Channel), f.Message)
+					if serr != nil {
+						return fmt.Errorf("start: %v", serr)
+					}
+					written += w
 				}
 			}
 			if _, serr = param.writer.Write(all); serr != nil {
-				return fmt.Errorf("line: %v", serr)
+				return fmt.Errorf("start: %v", serr)
 			}
+			written += len(all)
 		case "end":
-			continue
+			if _, serr = param.writer.Write(all); serr != nil {
+				return fmt.Errorf("end: %v", serr)
+			}
+			written += len(all)
 		case "err":
 			// Filter has no effect and err
 			if _, serr = param.writer.Write(all); serr != nil {
-				return fmt.Errorf("line: %v", serr)
+				return fmt.Errorf("err: %v", serr)
 			}
+			written += len(all)
 		default:
 			return fmt.Errorf("unsupported line type: %s", typ)
+		}
+		// Count differently by its channel group
+		if cg == sc.ChannelGroupOrderbook {
+			param.orderbookWritten += written
+		} else {
+			param.othersWritten += written
 		}
 	}
 }
